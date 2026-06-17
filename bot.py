@@ -1,44 +1,146 @@
 import os
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, 
+    filters, ContextTypes, ConversationHandler
+)
 
-# Temporary storage for profiles and users waiting
+# Temporary storage
 users = {}  
 queue = []  
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    users[user_id] = {'age': 'N/A', 'gender': 'N/A', 'state': 'N/A', 'partner': None}
-    await update.message.reply_text(
-        "Welcome to Datemexbot! 🌟\n\n"
-        "Find your Sugar Daddy, Sugar Baby, Boyfriend, or Girlfriend completely anonymously.\n\n"
-        "Step 1: Save your profile using this format:\n"
-        "/register Age Gender Location\n\n"
-        "Example:\n"
-        "/register 24 Female NewYork"
-    )
+# Registration Steps
+AGE, GENDER, COUNTRY, STATE_IN = range(4)
 
-async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    try:
-        age = context.args[0]
-        gender = context.args[1]
-        state = context.args[2]
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Ask for Age
+    await update.message.reply_text(
+        "Welcome to Datemexbot! 🌟\nLet's set up your profile.\n\n"
+        "How old are you? (Type your age, e.g., 23)"
+    )
+    return AGE
+
+async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    age = update.message.text
+    if not age.isdigit():
+        await update.message.reply_text("❌ Please enter a valid number for your age:")
+        return AGE
+    
+    context.user_data['age'] = age
+
+    # Ask for Gender with Buttons
+    keyboard = [
+        [InlineKeyboardButton("👱‍♂️ Male", callback_data="Male"), 
+         InlineKeyboardButton("👩 Female", callback_data="Female")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Select your gender:", reply_markup=reply_markup)
+    return GENDER
+
+async def get_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data['gender'] = query.data
+
+    # Ask for Country with 20 Flag Buttons
+    keyboard = [
+        [InlineKeyboardButton("🇮🇳 India", callback_data="India"), InlineKeyboardButton("🇺🇸 America", callback_data="America")],
+        [InlineKeyboardButton("🇨🇳 China", callback_data="China"), InlineKeyboardButton("🇷🇺 Russia", callback_data="Russia")],
+        [InlineKeyboardButton("🇪🇹 Ethiopia", callback_data="Ethiopia"), InlineKeyboardButton("🇮🇩 Indonesia", callback_data="Indonesia")],
+        [InlineKeyboardButton("🇸🇦 Saudi Arabia", callback_data="Saudi Arabia"), InlineKeyboardButton("🇮🇷 Iran", callback_data="Iran")],
+        [InlineKeyboardButton("🇬🇧 UK", callback_data="UK"), InlineKeyboardButton("🇮🇹 Italy", callback_data="Italy")],
+        [InlineKeyboardButton("🇧🇷 Brazil", callback_data="Brazil"), InlineKeyboardButton("🇳🇬 Nigeria", callback_data="Nigeria")],
+        [InlineKeyboardButton("🇲🇾 Malaysia", callback_data="Malaysia"), InlineKeyboardButton("🇩🇪 Germany", callback_data="Germany")],
+        [InlineKeyboardButton("🇪🇸 Spain", callback_data="Spain"), InlineKeyboardButton("🇫🇷 France", callback_data="France")],
+        [InlineKeyboardButton("🇿🇦 South Africa", callback_data="South Africa"), InlineKeyboardButton("🇨🇦 Canada", callback_data="Canada")],
+        [InlineKeyboardButton("🇯🇵 Japan", callback_data="Japan"), InlineKeyboardButton("🇦🇺 Australia", callback_data="Australia")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text("🌍 Select your country:", reply_markup=reply_markup)
+    return COUNTRY
+
+async def get_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    country = query.data
+    context.user_data['country'] = country
+
+    if country == "India":
+        # Ask for State if India is chosen
+        indian_states = [
+            "Andaman & Nicobar", "Andhra Pradesh", "Arunachal Pradesh", "Assam",
+            "Bihar", "Chandigarh", "Chhattisgarh", "Dadra & Nagar Haveli",
+            "Delhi", "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jammu & Kashmir",
+            "Jharkhand", "Karnataka", "Kerala", "Ladakh", "Lakshadweep", "Madhya Pradesh",
+            "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha",
+            "Puducherry", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana",
+            "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal"
+        ]
         
-        users[user_id] = {'age': age, 'gender': gender, 'state': state, 'partner': None}
-        await update.message.reply_text(
+        # Format buttons into two columns
+        state_buttons = []
+        for i in range(0, len(indian_states), 2):
+            row = [InlineKeyboardButton(indian_states[i], callback_data=indian_states[i])]
+            if i + 1 < len(indian_states):
+                row.append(InlineKeyboardButton(indian_states[i+1], callback_data=indian_states[i+1]))
+            state_buttons.append(row)
+
+        reply_markup = InlineKeyboardMarkup(state_buttons)
+        await query.edit_message_text("🇮🇳 Select your region in India:", reply_markup=reply_markup)
+        return STATE_IN
+    else:
+        # Save profile for non-India countries
+        user_id = query.from_user.id
+        users[user_id] = {
+            'age': context.user_data['age'],
+            'gender': context.user_data['gender'],
+            'state': country,
+            'partner': None
+        }
+        await query.edit_message_text(
             f"✅ Profile Registered!\n\n"
-            f"🔢 Age: {age}\n"
-            f"👥 Gender: {gender}\n"
-            f"🌍 Location: {state}\n\n"
+            f"🔢 Age: {users[user_id]['age']}\n"
+            f"👥 Gender: {users[user_id]['gender']}\n"
+            f"🌍 Location: {users[user_id]['state']}\n\n"
             f"Type /chat to instantly look for a partner!"
         )
-    except (IndexError, ValueError):
-        await update.message.reply_text("❌ Please use the correct layout:\n/register Age Gender Location")
+        return ConversationHandler.END
+
+async def get_state(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    state = query.data
+    user_id = query.from_user.id
+
+    # Save profile for India + State
+    users[user_id] = {
+        'age': context.user_data['age'],
+        'gender': context.user_data['gender'],
+        'state': f"India - {state}",
+        'partner': None
+    }
+    await query.edit_message_text(
+        f"✅ Profile Registered!\n\n"
+        f"🔢 Age: {users[user_id]['age']}\n"
+        f"👥 Gender: {users[user_id]['gender']}\n"
+        f"🌍 Location: {users[user_id]['state']}\n\n"
+        f"Type /chat to instantly look for a partner!"
+    )
+    return ConversationHandler.END
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Registration cancelled. Type /start to try again.")
+    return ConversationHandler.END
+
+# --- CHAT FEATURES ---
 
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
+    if user_id not in users:
+        await update.message.reply_text("⚠️ Please register first by typing /start")
+        return
+
     if users.get(user_id, {}).get('partner'):
         await update.message.reply_text("You are already connected to a partner!")
         return
@@ -118,14 +220,12 @@ async def handle_anonymous_messages(update: Update, context: ContextTypes.DEFAUL
         await update.message.reply_text("You are alone. Type /chat to start matching up!")
         return
 
-    # Text Forwarding + Scam/Link Filter
     if update.message.text:
         if "http" in update.message.text or "t.me" in update.message.text or "@" in update.message.text:
             await update.message.reply_text("🚫 External links and usernames are restricted to prevent scams!")
         else:
             await context.bot.send_message(partner_id, update.message.text)
             
-    # Picture Forwarding
     elif update.message.photo:
         photo_id = update.message.photo[-1].file_id
         caption = update.message.caption or ""
@@ -135,8 +235,19 @@ if __name__ == '__main__':
     token = os.environ.get("BOT_TOKEN")
     app = ApplicationBuilder().token(token).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("register", register))
+    # Set up the Registration flow
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
+            AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
+            GENDER: [CallbackQueryHandler(get_gender)],
+            COUNTRY: [CallbackQueryHandler(get_country)],
+            STATE_IN: [CallbackQueryHandler(get_state)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
+
+    app.add_handler(conv_handler)
     app.add_handler(CommandHandler("chat", chat))
     app.add_handler(CommandHandler("next", next_chat))
     app.add_handler(CommandHandler("exit", exit_chat))
